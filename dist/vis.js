@@ -5,7 +5,7 @@
  * A dynamic, browser-based visualization library.
  *
  * @version 4.21.0
- * @date    2018-05-18
+ * @date    2018-05-21
  *
  * @license
  * Copyright (C) 2011-2017 Almende B.V, http://almende.com
@@ -58464,7 +58464,7 @@ var ManipulationSystem = function () {
 
   }, {
     key: 'addEdgeFromMode',
-    value: function addEdgeFromMode(node) {
+    value: function addEdgeFromMode(fromId) {
       // when using the gui, enable edit mode if it wasnt already.
       if (this.editMode !== true) {
         this.enableEditMode();
@@ -58472,26 +58472,42 @@ var ManipulationSystem = function () {
 
       // restore the state of any bound functions or events, remove control nodes, restore physics
       this._clean();
-
       this.inMode = 'addEdge';
-      if (this.guiEnabled === true) {
-        var locale = this.options.locales[this.options.locale];
-        this.manipulationDOM = {};
-        this._createBackButton(locale);
-        this._createSeperator();
-        this._createDescription(locale['edgeDescription'] || this.options.locales['en']['edgeDescription']);
 
-        // bind the close button
-        this._bindHammerToDiv(this.closeDiv, this.toggleEditMode.bind(this));
-      }
-
-      this._createTemporaryEdge(node);
+      this._createTemporaryEdge(fromId);
 
       // temporarily overload functions
-      //this._temporaryBindUI('onTouch',    this._handleConnect.bind(this));
       this._temporaryBindUI('onDragEnd', this._finishConnect.bind(this));
       this._temporaryBindUI('onDrag', this._dragControlNode.bind(this));
       this._temporaryBindUI('onRelease', this._finishConnect.bind(this));
+      this._temporaryBindUI('onDragStart', this._dragStartEdge.bind(this));
+      this._temporaryBindUI('onHold', function () {});
+    }
+
+    /**
+     * Create a new node connected to an existing node
+     *
+     * @param {Node} node
+     */
+
+  }, {
+    key: 'addConnectedNodeMode',
+    value: function addConnectedNodeMode(fromId, toId) {
+      // when using the gui, enable edit mode if it wasnt already.
+      if (this.editMode !== true) {
+        this.enableEditMode();
+      }
+
+      // restore the state of any bound functions or events, remove control nodes, restore physics
+      this._clean();
+      this.inMode = 'addConnectedNode';
+
+      this._createTemporaryEdge(fromId, toId);
+
+      // temporarily overload functions
+      this._temporaryBindUI('onDragEnd', this._finishConnectedNodeMode.bind(this));
+      this._temporaryBindUI('onDrag', this._dragControlNode.bind(this));
+      this._temporaryBindUI('onRelease', this._finishConnectedNodeMode.bind(this));
       this._temporaryBindUI('onDragStart', this._dragStartEdge.bind(this));
       this._temporaryBindUI('onHold', function () {});
     }
@@ -59352,6 +59368,24 @@ var ManipulationSystem = function () {
     }
 
     /**
+     * Remove the temporary edge and perform connection.
+     * Don't remove temporary node since it is not really temporary.
+     *
+     * @param {Event}  event   The event
+     * @private
+     */
+
+  }, {
+    key: '_finishConnectedNodeMode',
+    value: function _finishConnectedNodeMode(event) {
+      var temporaryEdge = this.body.edges[this.temporaryIds.edges[0]];
+      this.temporaryIds.nodes = [];
+      this._performAddEdge(temporaryEdge.fromId, temporaryEdge.toId);
+      this._cleanupTemporaryNodesAndEdges();
+      this.body.emitter.emit('_redraw');
+    }
+
+    /**
      *
      * @param {Event} event
      * @private
@@ -59374,16 +59408,20 @@ var ManipulationSystem = function () {
 
   }, {
     key: '_createTemporaryEdge',
-    value: function _createTemporaryEdge(node) {
+    value: function _createTemporaryEdge(fromId, toId) {
       // create a node the temporary line can look at
-      var targetNode = this._getNewTargetNode(node.x, node.y);
-      this.body.nodes[targetNode.id] = targetNode;
-      this.body.nodeIndices.push(targetNode.id);
+      var targetNode = void 0;
+      if (toId === undefined) {
+        var node = this.body.nodes[fromId];
+        targetNode = this._getNewTargetNode(node.x, node.y);
+        this.body.nodes[targetNode.id] = targetNode;
+        this.body.nodeIndices.push(targetNode.id);
+      } else targetNode = this.body.nodes[toId];
 
       // create a temporary edge
       var connectionEdge = this.body.functions.createEdge({
         id: 'connectionEdge' + util.randomUUID(),
-        from: node.id,
+        from: fromId,
         to: targetNode.id,
         physics: false,
         smooth: {
